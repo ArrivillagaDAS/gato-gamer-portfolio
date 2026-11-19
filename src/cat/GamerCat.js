@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FURS } from './palettes.js';
 
-const MODEL_URL = '/models/characters/cat.glb';
+const MODEL_URL = `${import.meta.env.BASE_URL}models/characters/cat.glb`;
 
 /**
  * Gato jugable: carga el modelo de Quaternius, tiñe su pelaje y le añade
