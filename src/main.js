@@ -13,6 +13,7 @@ import { Input } from './input/Input.js';
 import { WireGame } from './minigame/WireGame.js';
 import { Music } from './audio/Music.js';
 import { createJukeboxMenu } from './ui/jukeboxMenu.js';
+import { createCredits } from './ui/credits.js';
 import './style.css';
 
 const SHOWROOM_CAT_H = 0.7;  // alto del gato en la vitrina
@@ -161,6 +162,8 @@ loading.classList.add('done');
 // ======================= música y arcade =======================
 const music = new Music();
 const jukeboxMenu = createJukeboxMenu(music, { onClose: () => { if (mode === 'room') input.setEnabled(true); } });
+const credits = createCredits({ onClose: () => { if (mode === 'room') input.setEnabled(true); } });
+document.getElementById('credits-btn').addEventListener('click', () => { input.setEnabled(false); hud.prompt(null); credits.show(); });
 const wire = new WireGame(cat, {
   onExit: () => {
     mode = 'room';
@@ -280,9 +283,10 @@ const customizer = createCustomizer(ui, {
     saveLook(final);
     enterRoom();
   },
+  onCredits: () => credits.show(),
 });
 document.getElementById('edit-cat').addEventListener('click', backToShowroom);
-addEventListener('keydown', (e) => { if (mode === 'room' && e.code === 'Escape' && !jukeboxMenu.open) backToShowroom(); });
+addEventListener('keydown', (e) => { if (mode === 'room' && e.code === 'Escape' && !jukeboxMenu.open && !credits.open) backToShowroom(); });
 
 // ======================= lógica de interacción =======================
 const feet = new THREE.Vector3();
