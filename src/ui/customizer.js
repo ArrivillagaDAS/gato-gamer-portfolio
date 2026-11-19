@@ -5,7 +5,7 @@ import { FURS } from '../cat/palettes.js';
  * @param {HTMLElement} host
  * @param {{ look: object, onChange: (look) => void, onEnter: (look) => void }} opts
  */
-export function createCustomizer(host, { look, onChange, onEnter }) {
+export function createCustomizer(host, { look, onChange, onEnter, onCredits }) {
   const state = { ...look };
 
   host.innerHTML = `
@@ -43,6 +43,7 @@ export function createCustomizer(host, { look, onChange, onEnter }) {
         <button type="button" class="primary" data-enter>Entrar al cuarto →</button>
       </div>
       <p class="hint">Arrastra para girar al gato · tócalo para saludar</p>
+      <p class="hint"><button type="button" class="linklike" data-credits>Créditos</button></p>
     </section>`;
 
   const furName = host.querySelector('[data-fur-name]');
@@ -88,6 +89,7 @@ export function createCustomizer(host, { look, onChange, onEnter }) {
     });
   });
   host.querySelector('[data-enter]').addEventListener('click', () => onEnter({ ...state }));
+  host.querySelector('[data-credits]').addEventListener('click', () => onCredits?.());
 
   render();
   return {

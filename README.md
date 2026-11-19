@@ -2,6 +2,8 @@
 
 Portafolio web interactivo en 3D. El visitante personaliza un gato y explora con él una habitación gamer: escala muebles, tira objetos con la cabeza, juega en una máquina arcade, elige música en una rockola y cava un túnel en el arenero que lleva a un jardín-laberinto.
 
+**Sitio publicado:** https://arrivillagadas.github.io/gato-gamer-portfolio/
+
 Todo corre en el navegador con Three.js y Rapier. No usa modelos de pago ni modelado manual: los modelos vienen de paquetes gratuitos (CC0 y CC BY) y el resto se construye con geometrías primitivas, texturas de canvas y Web Audio.
 
 ## Funcionalidades
@@ -50,6 +52,18 @@ npm run build
 npm run preview
 ```
 
+### Despliegue
+
+Cada push a `main` compila el proyecto y lo publica en GitHub Pages con el workflow `.github/workflows/deploy.yml`. En el build, Vite usa la ruta base `/gato-gamer-portfolio/`.
+
+### Flujo de ramas
+
+- `main`: versión publicada.
+- `dev`: integración.
+- `feature/<nombre>`: cada funcionalidad nueva sale de `dev` y vuelve a `dev` con un merge sin fast-forward.
+
+Los commits siguen [Conventional Commits](https://www.conventionalcommits.org/).
+
 ### Herramientas de modelos
 
 La carpeta `tools/` contiene scripts para inspeccionar archivos `.glb` (triángulos, materiales, huesos y animaciones) y para mantener `public/models/manifest.json`.
@@ -92,4 +106,4 @@ El detalle por archivo está en [`public/models/CREDITS.md`](public/models/CREDI
 - **Mando de consola**: "Low Poly Controller" de [Ginsta](https://poly.pizza/m/fCyA3Ug79X), CC BY 3.0.
 - **Audífonos**: "Headphones" de [Ginsta](https://poly.pizza/m/VLB0kuGDoP), CC BY 3.0.
 
-Los modelos con licencia CC BY 3.0 requieren atribución visible en el sitio publicado.
+Los modelos con licencia CC BY 3.0 requieren atribución visible en el sitio publicado. Por eso el sitio incluye una ventana de créditos, accesible desde la pantalla de personalización y desde el botón "Créditos" dentro del cuarto.
