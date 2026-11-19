@@ -6,7 +6,7 @@ const cache = new Map();
 
 /** Carga (con caché) y devuelve una copia lista para colocar. */
 export async function loadModel(path) {
-  if (!cache.has(path)) cache.set(path, loader.loadAsync(`/models/${path}`).then((g) => g.scene));
+  if (!cache.has(path)) cache.set(path, loader.loadAsync(`${import.meta.env.BASE_URL}models/${path}`).then((g) => g.scene));
   const src = await cache.get(path);
   const obj = src.clone(true);
   const lights = [];
