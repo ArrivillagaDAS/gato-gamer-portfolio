@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visor de modelos</title>
+<style>
+  :root { --bg:#14131a; --panel:#1d1c25; --line:#2c2b36; --text:#e8e6f0; --muted:#9592a6; --accent:#ff7a59; --cc0:#5fd38d; --by:#f5c451; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.4 system-ui, sans-serif; }
+  body { display:grid; grid-template-columns: 300px 1fr; }
+  aside { background:var(--panel); border-right:1px solid var(--line); overflow:auto; }
+  header { padding:14px 16px; border-bottom:1px solid var(--line); }
+  h1 { font-size:15px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:12px; }
+  .group { padding:8px 16px 2px; color:var(--muted); text-transform:uppercase; font-size:11px; letter-spacing:.06em; }
+  button.item { display:flex; justify-content:space-between; gap:8px; width:100%; text-align:left; background:none; border:0; color:inherit; padding:6px 16px; cursor:pointer; font:inherit; }
+  button.item:hover { background:#26252f; }
+  button.item.on { background:#2e2a3a; box-shadow: inset 3px 0 var(--accent); }
+  .tag { font-size:10px; padding:1px 6px; border-radius:8px; border:1px solid currentColor; white-space:nowrap; }
+  .tag.cc0 { color:var(--cc0); } .tag.by { color:var(--by); }
+  main { position:relative; }
+  canvas { display:block; width:100%; height:100%; }
+  #info { position:absolute; left:12px; top:12px; background:rgba(20,19,26,.88); border:1px solid var(--line); border-radius:8px; padding:10px 12px; max-width:380px; }
+  #info b { font-size:14px; } #info .row { color:var(--muted); }
+  #controls { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+  #controls button, #controls label { background:#2a2934; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 8px; font:inherit; cursor:pointer; }
+  #controls button.on { border-color:var(--accent); color:var(--accent); }
+  #err { color:#ff8080; }
+  @media (max-width: 700px) { body { grid-template-columns:1fr; grid-template-rows: 40vh 60vh; } aside { order:2; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<aside>
+  <header><h1>Modelos del portafolio</h1><div class="sub" id="summary">Cargando manifest…</div></header>
+  <div id="list"></div>
+</aside>
+<main>
+  <canvas id="c"></canvas>
+  <div id="info">Selecciona un modelo</div>
+</main>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14131a);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 100);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3550, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(2, 4, 3); scene.add(sun);
+const grid = new THREE.GridHelper(4, 16, 0x4a4760, 0x2c2b36); scene.add(grid);
+
+const loader = new GLTFLoader();
+const clock = new THREE.Clock();
+let current = null, mixer = null, skel = null, wire = false, toon = false, original = new Map();
+
+function resize() {
+  const r = canvas.parentElement.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+
+const gradient = new THREE.DataTexture(new Uint8Array([90, 170, 255]), 3, 1, THREE.RedFormat);
+gradient.minFilter = gradient.magFilter = THREE.NearestFilter; gradient.needsUpdate = true;
+
+function applyMaterials() {
+  current?.traverse((o) => {
+    if (!o.isMesh) return;
+    if (!original.has(o)) original.set(o, o.material);
+    const src = original.get(o);
+    let m = src;
+    if (toon) m = new THREE.MeshToonMaterial({ color: src.color, map: src.map, gradientMap: gradient, transparent: src.transparent, opacity: src.opacity });
+    m.wireframe = wire;
+    o.material = m;
+  });
+}
+
+async function show(entry, btn) {
+  document.querySelectorAll('button.item').forEach((b) => b.classList.toggle('on', b === btn));
+  const info = document.getElementById('info');
+  info.innerHTML = `<b>${entry.file.split('/').pop()}</b><div class="row">Cargando…</div>`;
+  if (current) { scene.remove(current); current = null; }
+  if (skel) { scene.remove(skel); skel = null; }
+  mixer = null; original = new Map();
+  try {
+    const gltf = await loader.loadAsync(entry.file);
+    const obj = gltf.scene;
+    // normaliza a ~1 unidad para poder comparar formas; la escala real va en el panel
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = box.getSize(new THREE.Vector3());
+    const s = 1 / Math.max(size.x, size.y, size.z);
+    obj.scale.setScalar(s);
+    const c = box.getCenter(new THREE.Vector3()).multiplyScalar(s);
+    obj.position.set(-c.x, -box.min.y * s, -c.z);
+    scene.add(obj); current = obj;
+    camera.position.set(1.5, 1.0, 1.9); controls.target.set(0, size.y * s / 2, 0); controls.update();
+    applyMaterials();
+
+    let anims = '';
+    if (gltf.animations.length) {
+      mixer = new THREE.AnimationMixer(obj);
+      anims = gltf.animations.map((a, i) => `<button data-clip="${i}">Play ${a.name} (${a.duration.toFixed(2)}s)</button>`).join('');
+    }
+    const hasSkin = (() => { let k = false; obj.traverse((o) => { if (o.isSkinnedMesh) k = true; }); return k; })();
+    const lic = entry.license.startsWith('CC0') ? 'cc0' : 'by';
+    info.innerHTML = `
+      <b>${entry.file.split('/').pop()}</b> <span class="tag ${lic}">${entry.license}</span>
+      <div>${entry.role}</div>
+      <div class="row">${entry.tris} triángulos · ${entry.materials} materiales · ${entry.kb} KB${entry.textures.length ? ' · textura ' + entry.textures.join(', ') : ''}</div>
+      <div class="row">Tamaño original: ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)} u</div>
+      ${entry.joints ? `<div class="row">Rig: ${entry.joints} huesos</div>` : ''}
+      <div class="row">Autor: <a href="${entry.source}" target="_blank" rel="noopener" style="color:var(--accent)">${entry.author}</a></div>
+      <div id="controls">
+        ${anims}
+        ${hasSkin ? '<button data-act="skel">Esqueleto</button>' : ''}
+        <button data-act="wire" class="${wire ? 'on' : ''}">Wireframe</button>
+        <button data-act="toon" class="${toon ? 'on' : ''}">Toon</button>
+      </div>`;
+    info.querySelectorAll('[data-clip]').forEach((b) => b.onclick = () => {
+      mixer.stopAllAction(); mixer.clipAction(gltf.animations[+b.dataset.clip]).reset().play();
+      info.querySelectorAll('[data-clip]').forEach((x) => x.classList.toggle('on', x === b));
+    });
+    info.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => {
+      const a = b.dataset.act;
+      if (a === 'skel') { if (skel) { scene.remove(skel); skel = null; } else { skel = new THREE.SkeletonHelper(obj); scene.add(skel); } }
+      if (a === 'wire') { wire = !wire; applyMaterials(); }
+      if (a === 'toon') { toon = !toon; applyMaterials(); }
+      b.classList.toggle('on');
+    });
+    if (gltf.animations.length) info.querySelector('[data-clip]').click();
+  } catch (e) {
+    info.innerHTML = `<b>${entry.file}</b><div id="err">Error: ${e.message}</div>`;
+  }
+}
+
+const manifest = await (await fetch('public/models/manifest.json')).json();
+const groups = { characters: 'Personaje', structure: 'Estructura', furniture: 'Muebles', props: 'Props interactivos' };
+const list = document.getElementById('list');
+let first = null;
+for (const [key, label] of Object.entries(groups)) {
+  const items = manifest.filter((m) => m.file.startsWith(`models/${key}/`));
+  if (!items.length) continue;
+  list.insertAdjacentHTML('beforeend', `<div class="group">${label}</div>`);
+  for (const m of items) {
+    m.file = 'public/' + m.file;
+    const b = document.createElement('button');
+    b.className = 'item';
+    const lic = m.license.startsWith('CC0') ? 'cc0' : 'by';
+    b.innerHTML = `<span>${m.file.split('/').pop().replace('.glb', '')}</span><span class="tag ${lic}">${m.tris} △</span>`;
+    b.onclick = () => show(m, b);
+    list.appendChild(b);
+    first ??= [m, b];
+  }
+}
+const tot = manifest.reduce((s, m) => s + m.tris, 0);
+document.getElementById('summary').textContent = `${manifest.length} modelos · ${tot.toLocaleString('es')} triángulos · verde = CC0, amarillo = CC BY`;
+resize();
+show(...first);
+
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta();
+  mixer?.update(dt);
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
