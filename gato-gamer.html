@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gato gamer</title>
+<style>
+  :root { --bg:#0f0e15; --panel:rgba(24,22,34,.9); --line:#2e2b40; --text:#ecebf3; --muted:#9a96ad; --accent:#ff4fd8; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.4 system-ui, sans-serif; overflow:hidden; }
+  canvas { display:block; width:100vw; height:100vh; }
+  .panel { position:absolute; left:12px; top:12px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; max-width:min(360px, calc(100vw - 48px)); }
+  h1 { font-size:15px; margin:0 0 2px; } .sub { color:var(--muted); font-size:12px; margin-bottom:8px; }
+  .lbl { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; margin:10px 0 4px; }
+  .row { display:flex; flex-wrap:wrap; gap:6px; }
+  button { background:#262338; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 9px; font:inherit; cursor:pointer; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  .sw { width:26px; height:26px; padding:0; border-radius:50%; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="panel">
+  <h1>Gato cúbico · Quaternius (CC0)</h1>
+  <div class="sub">2.448 △ · 16 huesos · 8 clips. El color y los accesorios se generan por código.</div>
+  <div class="lbl">Animación</div><div class="row" id="clips"></div>
+  <div class="lbl">Pelaje</div><div class="row" id="furs"></div>
+  <div class="lbl">Accesorios gamer</div>
+  <div class="row">
+    <button data-acc="headset" class="on">Audífonos RGB</button>
+    <button data-acc="collar" class="on">Collar LED</button>
+    <button data-acc="toon">Toon shading</button>
+  </div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f0e15);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
+camera.position.set(1.0, 0.8, 1.7);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(-0.15, 0.3, 0.1); controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xd8d4ff, 0x2a2040, 1.4));
+const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(2, 4, 2); key.castShadow = true; key.shadow.mapSize.set(1024, 1024); scene.add(key);
+const rim = new THREE.PointLight(0xff4fd8, 2.5, 5); rim.position.set(-1.2, 0.8, -1); scene.add(rim);
+const rim2 = new THREE.PointLight(0x38e1ff, 2, 5); rim2.position.set(1.2, 0.6, -1.2); scene.add(rim2);
+const floor = new THREE.Mesh(new THREE.CircleGeometry(1.6, 48), new THREE.MeshStandardMaterial({ color: 0x1b1828, roughness: .9 }));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+// suelo con rejilla neón para el ambiente
+const ring = new THREE.Mesh(new THREE.RingGeometry(1.55, 1.6, 64), new THREE.MeshBasicMaterial({ color: 0xff4fd8 }));
+ring.rotation.x = -Math.PI / 2; ring.position.y = .002; scene.add(ring);
+
+const gltf = await new GLTFLoader().loadAsync('public/models/characters/cat-cube.glb');
+const cat = gltf.scene;
+const box = new THREE.Box3().setFromObject(cat);
+const size = box.getSize(new THREE.Vector3());
+const scale = 0.7 / size.y; // ~0.7 unidades de alto
+cat.scale.setScalar(scale);
+cat.position.y = -box.min.y * scale;
+scene.add(cat);
+
+let mesh, head, body;
+cat.traverse((o) => {
+  if (o.isMesh) { mesh = o; o.castShadow = true; }
+  if (o.isBone && o.name === 'Head') head = o;
+  if (o.isBone && o.name === 'Body') body = o;
+});
+
+// --- recolor del atlas: tiñe solo los píxeles grises (pelaje), respeta ojos/nariz ---
+const srcMat = mesh.material;
+const img = srcMat.map.image;
+const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+const ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0);
+const base = ctx.getImageData(0, 0, cv.width, cv.height);
+const furTex = new THREE.CanvasTexture(cv);
+furTex.flipY = srcMat.map.flipY; furTex.colorSpace = THREE.SRGBColorSpace;
+furTex.magFilter = srcMat.map.magFilter; furTex.minFilter = srcMat.map.minFilter;
+
+function recolor(fur, dark) {
+  const out = ctx.createImageData(base);
+  const a = base.data, b = out.data;
+  const F = new THREE.Color(fur), D = new THREE.Color(dark ?? fur);
+  for (let i = 0; i < a.length; i += 4) {
+    const r = a[i], g = a[i + 1], bl = a[i + 2];
+    const mx = Math.max(r, g, bl), mn = Math.min(r, g, bl);
+    const grey = mx - mn < 18; // poca saturación = pelaje
+    if (grey && mx > 40 && mx < 240) {
+      const t = Math.min(1, Math.max(0, (mx - 40) / 90)); // claro -> color principal, oscuro -> secundario
+      const c = D.clone().lerp(F, t);
+      b[i] = c.r * 255; b[i + 1] = c.g * 255; b[i + 2] = c.b * 255;
+    } else { b[i] = r; b[i + 1] = g; b[i + 2] = bl; }
+    b[i + 3] = a[i + 3];
+  }
+  ctx.putImageData(out, 0, 0); furTex.needsUpdate = true;
+}
+
+const stdMat = srcMat.clone(); stdMat.map = furTex;
+const gradient = new THREE.DataTexture(new Uint8Array([70, 150, 255]), 3, 1, THREE.RedFormat);
+gradient.minFilter = gradient.magFilter = THREE.NearestFilter; gradient.needsUpdate = true;
+const toonMat = new THREE.MeshToonMaterial({ map: furTex, gradientMap: gradient });
+mesh.material = stdMat;
+
+const furs = [
+  ['Naranja', '#ff9a3c', '#c2561b'], ['Gris', '#c9c9cf', '#6c6c78'], ['Negro', '#3a3846', '#17161e'],
+  ['Crema', '#f6e2c0', '#c79c6a'], ['Neón', '#b48cff', '#4a2a9e'],
+];
+const furRow = document.getElementById('furs');
+furs.forEach(([name, f, d], i) => {
+  const b = document.createElement('button'); b.className = 'sw'; b.title = name; b.style.background = f;
+  b.onclick = () => { recolor(f, d); furRow.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); };
+  furRow.appendChild(b); if (i === 0) b.click();
+});
+
+// --- accesorios hechos con primitivas, pegados a los huesos ---
+// Se construyen en espacio mundo (Z local = hacia donde mira el gato) y luego
+// bone.attach() conserva esa transformación aunque el hueso venga rotado/escalado.
+cat.updateMatrixWorld(true);
+const headPos = new THREE.Vector3(); head.getWorldPosition(headPos);
+const bodyPos = new THREE.Vector3(); body.getWorldPosition(bodyPos);
+const forward = headPos.clone().sub(bodyPos).setY(0).normalize();
+const headBox = new THREE.Box3();
+// estimar el tamaño de la cabeza a partir de los vértices dominados por el hueso Head
+{
+  const pos = mesh.geometry.attributes.position, si = mesh.geometry.attributes.skinIndex, sw = mesh.geometry.attributes.skinWeight;
+  const hi = mesh.skeleton.bones.indexOf(head), v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    if (si.getX(i) === hi && sw.getX(i) > 0.5) { mesh.getVertexPosition(i, v); headBox.expandByPoint(v.applyMatrix4(mesh.matrixWorld)); }
+  }
+}
+const hbs = headBox.getSize(new THREE.Vector3()), hc = headBox.getCenter(new THREE.Vector3());
+// tamaño de la cabeza en el marco del gato: x = ancho, y = alto, z = largo
+const alongX = Math.abs(forward.x) > Math.abs(forward.z);
+const hs = new THREE.Vector3(alongX ? hbs.z : hbs.x, hbs.y, alongX ? hbs.x : hbs.z);
+
+const rgbMats = [];
+const neon = (h) => { const m = new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(h, 1, .6) }); rgbMats.push(m); return m; };
+const shell = new THREE.MeshStandardMaterial({ color: 0x1c1a26, roughness: .4, metalness: .3 });
+
+const headset = new THREE.Group();
+{
+  const w = hs.x * 0.5 + 0.012, cupR = hs.y * 0.22;
+  // arco sobre la cabeza (plano XY local = perpendicular a la mirada)
+  const band = new THREE.Mesh(new THREE.TorusGeometry(w, hs.y * 0.045, 8, 32, Math.PI), shell);
+  band.position.y = hs.y * 0.08; headset.add(band);
+  for (const s of [-1, 1]) {
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(cupR, cupR, hs.x * 0.12, 20), shell);
+    cup.rotation.z = Math.PI / 2; cup.position.set(s * w, hs.y * 0.02, 0); headset.add(cup);
+    const led = new THREE.Mesh(new THREE.TorusGeometry(cupR * 0.75, cupR * 0.16, 6, 24), neon(s > 0 ? 0.85 : 0.5));
+    led.rotation.y = Math.PI / 2; led.position.set(s * (w + hs.x * 0.065), hs.y * 0.02, 0); headset.add(led);
+  }
+  // micrófono hacia adelante, del lado izquierdo
+  const micLen = hs.z * 0.45;
+  const mic = new THREE.Mesh(new THREE.CylinderGeometry(hs.y * 0.02, hs.y * 0.02, micLen, 6), shell);
+  mic.rotation.x = Math.PI / 2; mic.position.set(-w, -hs.y * 0.12, micLen / 2); headset.add(mic);
+  const micTip = new THREE.Mesh(new THREE.SphereGeometry(hs.y * 0.05, 10, 8), neon(0.3)); micTip.position.set(-w, -hs.y * 0.12, micLen); headset.add(micTip);
+}
+const collar = new THREE.Group();
+{
+  // torus en plano XY local: su normal (Z) apunta hacia adelante, rodea el cuello
+  const r = hs.x * 0.32;
+  const c = new THREE.Mesh(new THREE.TorusGeometry(r, hs.y * 0.05, 8, 32), neon(0.55)); collar.add(c);
+  const tag = new THREE.Mesh(new THREE.OctahedronGeometry(hs.y * 0.08), neon(0.15)); tag.position.set(0, -r - hs.y * 0.06, hs.y * 0.04); collar.add(tag);
+}
+function mount(group, worldPos) {
+  group.position.copy(worldPos);
+  group.lookAt(worldPos.clone().add(forward)); // Z local = mirada del gato
+  scene.add(group); group.updateMatrixWorld(true);
+  head.attach(group); // conserva la transformación mundial y sigue al hueso
+}
+mount(headset, new THREE.Vector3(hc.x, hc.y + hs.y * 0.12, hc.z).addScaledVector(forward, hs.z * 0.12));
+mount(collar, new THREE.Vector3(hc.x, hc.y - hs.y * 0.22, hc.z).addScaledVector(forward, -hs.z * 0.52));
+
+document.querySelectorAll('[data-acc]').forEach((b) => b.onclick = () => {
+  b.classList.toggle('on'); const on = b.classList.contains('on');
+  if (b.dataset.acc === 'headset') headset.visible = on;
+  if (b.dataset.acc === 'collar') collar.visible = on;
+  if (b.dataset.acc === 'toon') mesh.material = on ? toonMat : stdMat;
+});
+
+// --- animaciones ---
+const mixer = new THREE.AnimationMixer(cat);
+let active = null;
+const clipRow = document.getElementById('clips');
+const order = ['Idle', 'Walk', 'Run', 'Jump_Start', 'Jump_Loop', 'Headbutt', 'Idle_Eating', 'Death'];
+const clips = gltf.animations.map((c) => ({ c, n: c.name.split('|').pop() })).sort((a, b) => order.indexOf(a.n) - order.indexOf(b.n));
+for (const { c, n } of clips) {
+  const b = document.createElement('button'); b.textContent = n;
+  b.onclick = () => {
+    const next = mixer.clipAction(c);
+    if (n === 'Death' || n === 'Jump_Start') { next.setLoop(THREE.LoopOnce); next.clampWhenFinished = true; }
+    next.reset().play();
+    if (active && active !== next) active.crossFadeTo(next, 0.2, false);
+    active = next;
+    clipRow.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  };
+  clipRow.appendChild(b);
+}
+clipRow.querySelector('button').click();
+
+function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta(), t = clock.elapsedTime;
+  mixer.update(dt);
+  rgbMats.forEach((m, i) => m.color.setHSL((t * 0.15 + i * 0.13) % 1, 1, 0.6));
+  ring.material.color.setHSL((t * 0.1) % 1, 1, 0.55);
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
